@@ -1,0 +1,192 @@
+---
+title: "Testing FedEx Cup Modelss"
+output: pdf_document
+date: "2025-11-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(readr)
+PGA_2024_Data <- read_csv("/~filepath/PGA_2024_Data.csv")
+View(PGA_2024_Data)
+PGA_2025_Data <- read_csv("/~filepath/PGA_2025_Data.csv")
+View(PGA_2025_Data)
+```
+
+```{r}
+model <- glm(`TOTAL POINTS` ~ 
+               `%_FIR` + 
+               `%_GIR` + 
+               `%_Scrambling`+ 
+               `AVG_Putting`,
+             data = PGA_2025_Data, family = Gamma("inverse"))
+
+summary(model)
+
+```
+
+```{r}
+model_Rate_2025 <- glm(`TOTAL POINTS` ~ 
+               `%_FIR` + 
+               `%_GIR` + 
+               `%_Scrambling`+ 
+               `AVG_Putting`,
+             data = PGA_2025_Data, family = Gamma(link = "log"))
+
+summary(model_Rate_2025)
+```
+*Gamma distribution defined by two parameters - shape (𝛼) and rate (𝛽).*
+
+*There is alternative parameterization through mean (𝜇) and shape, which is used in GLM.*
+
+*We take 𝜇=𝛼/𝛽 and put it into place of rate (as 𝛽=𝛼/𝜇), resulting in function 𝐺𝑎𝑚𝑚𝑎(𝜇,𝛼).*
+
+*In R GLM assumes shape to be a constant (as linear regression assumes constant variance). To satisfy this assumption dispersion (𝜙) is introduced:*
+*𝜙=1𝛼*
+
+*For the simple case glm(x ~ 1, family = Gamma(link = 'identity)), summary.glm gives you estimate, that is equal to 𝜇 (note that default link is 'inverse' and estimate = 1/𝜇) and dispersion is 𝜙.*
+
+*https://stats.stackexchange.com/questions/247624/dispersion-parameter-for-gamma-family*
+
+```{r}
+model_SG_2025 <- glm(`TOTAL POINTS` ~ 
+               AVG_SG_Tee + 
+               AVG_SG_APP + 
+               AVG_SG_ARG + 
+               AVG_SG_PUTTING,
+             data = PGA_2025_Data, family = Gamma(link = "log"))
+
+summary(model_SG_2025)
+
+```
+```{r}
+model_Rate_2024 <- glm(`TOTAL POINTS` ~ 
+               `%_FIR` + 
+               `%_GIR` + 
+               `%_Scrambling`+ 
+               `AVG_Putting`,
+             data = PGA_2024_Data, family = Gamma(link = "log"))
+
+summary(model_Rate_2024)
+```
+
+```{r}
+model_SG_2024 <- glm(`TOTAL POINTS` ~ 
+               AVG_SG_Tee + 
+               AVG_SG_APP + 
+               AVG_SG_ARG + 
+               AVG_SG_PUTTING,
+             data = PGA_2024_Data, family = Gamma(link = "log"))
+
+summary(model_SG_2024)
+```
+
+```{r}
+library(fitdistrplus)
+descdist(PGA_2025_Data$`TOTAL POINTS`, discrete = FALSE)
+descdist(PGA_2024_Data$`TOTAL POINTS`, discrete = FALSE)
+```
+```{r}
+#plot(model_SG_2025)
+```
+```{r}
+# Predictions
+SG_prediction <- predict(model_SG_2024, newdata = PGA_2025_Data, type = "response")
+Rate_Prediction <- predict(model_Rate_2024, newdata = PGA_2025_Data, type = "response")
+
+actual_2025 <- PGA_2025_Data$`TOTAL POINTS`
+
+# Valid values only
+valid <- complete.cases(actual_2025, SG_prediction)
+
+# RMSE
+sg_rmse <- sqrt(mean((actual_2025[valid] - SG_prediction[valid])^2))
+
+# R^2
+ss_res <- sum((actual_2025[valid] - SG_prediction[valid])^2)
+ss_tot <- sum((actual_2025[valid] - mean(actual_2025[valid]))^2)
+sg_r2 <- 1 - ss_res/ss_tot
+
+sg_rmse
+sg_r2
+
+valid2 <- complete.cases(actual_2025, Rate_Prediction)
+
+rate_rmse <- sqrt(mean((actual_2025[valid2] - Rate_Prediction[valid2])^2))
+
+ss_res2 <- sum((actual_2025[valid2] - Rate_Prediction[valid2])^2)
+ss_tot2 <- sum((actual_2025[valid2] - mean(actual_2025[valid2]))^2)
+rate_r2 <- 1 - ss_res2/ss_tot2
+
+rate_rmse
+rate_r2
+
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(PGA_2025_Data, aes(x = SG_prediction, y = `TOTAL POINTS`)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "2024-trained SG model predicting 2025",
+    x = "Predicted TOTAL POINTS",
+    y = "Actual TOTAL POINTS"
+  )
+
+```
+```{r}
+ggplot(PGA_2025_Data, aes(x = Rate_Prediction, y = `TOTAL POINTS`)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "2024-trained Rate model predicting 2025",
+    x = "Predicted TOTAL POINTS",
+    y = "Actual TOTAL POINTS"
+  )
+```
+```{r}
+# Train model on 2024 + 2025
+
+needed_cols <- c("PLAYER","TOTAL POINTS",
+                 "AVG_SG_Tee",
+                 "AVG_SG_APP",
+                 "AVG_SG_ARG",
+                 "AVG_SG_PUTTING")
+
+PGA_train <- rbind(
+  PGA_2024_Data[, needed_cols],
+  PGA_2025_Data[, needed_cols]
+)
+
+
+model_SG_2year <- glm(
+  `TOTAL POINTS` ~ AVG_SG_Tee + AVG_SG_APP + AVG_SG_ARG + AVG_SG_PUTTING,
+  data = PGA_train,
+  family = Gamma(link = "log")
+)
+
+# Predict "2026" using 2025 predictors
+pred_2026_SG <- predict(
+  model_SG_2year,
+  newdata = PGA_2025_Data,
+  type = "response"
+)
+
+pred_2026_SG
+```
+```{r}
+
+```
+
